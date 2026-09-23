@@ -22,8 +22,15 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'          # Latest stable Flutter
+          channel: 'stable'
           cache: true
+
+      - name: Create Flutter project structure (if missing)
+        run: |
+          if [ ! -d "android" ]; then
+            echo "android folder missing, generating..."
+            flutter create . --project-name sarvatobhadra_chakra --org com.sarvatobhadra
+          fi
 
       - name: Get dependencies
         run: flutter pub get
