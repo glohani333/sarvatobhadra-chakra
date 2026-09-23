@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:sweph/sweph.dart';
+import 'dart:math' as math;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Swiss Ephemeris (Moshier - no data files needed)
   await Sweph.init();
-  
   runApp(const SarvatobhadraApp());
 }
 
@@ -39,13 +37,18 @@ class _ChakraScreenState extends State<ChakraScreen> {
   DateTime? birthDate;
   TimeOfDay? birthTime;
   String birthPlace = '';
+  double latitude = 28.6139;   // Default Delhi
+  double longitude = 77.2090;
+  double timezoneOffset = 5.5; // IST
 
-  // Calculated positions
+  // Calculated data
   Map<String, String> planetNakshatra = {};
+  Map<String, double> planetLongitude = {};
   bool isCalculating = false;
   String? errorMessage;
+  bool showVedha = true;
 
-  // Classical 9x9 grid
+  // Classical grid (9x9)
   final List<List<String>> grid = [
     ['ई', 'Dhanishta', 'Shatabhisha', 'P.Bhadra', 'U.Bhadra', 'Revati', 'Ashwini', 'Bharani', 'अ'],
     ['Shravana', 'ऋ', 'ग', 'स', 'द', 'च', 'ल', 'उ', 'Krittika'],
@@ -66,21 +69,29 @@ class _ChakraScreenState extends State<ChakraScreen> {
     'Shatabhisha', 'P.Bhadra', 'U.Bhadra', 'Revati'
   ];
 
-  // Convert longitude to Nakshatra (sidereal)
-  String longitudeToNakshatra(double longitude) {
-    // Each nakshatra = 13°20' = 13.333... degrees
-    double adjusted = longitude % 360;
+  // Find cell position of a nakshatra
+  (int, int)? findNakshatraPosition(String nak) {
+    for (int r = 0; r < 9; r++) {
+      for (int c = 0; c < 9; c++) {
+        if (grid[r][c] == nak || grid[r][c].contains(nak) || nak.contains(grid[r][c])) {
+          return (r, c);
+        }
+      }
+    }
+    return null;
+  }
+
+  String longitudeToNakshatra(double lon) {
+    double adjusted = lon % 360;
     if (adjusted < 0) adjusted += 360;
-    
-    int index = (adjusted / (360 / 27)).floor(); // 27 nakshatras normally
-    // For Abhijit we keep it simple for now (using 27)
+    int index = (adjusted / (360.0 / 27)).floor();
     if (index >= 27) index = 26;
     return nakshatraList[index];
   }
 
   Future<void> _calculatePlanets() async {
     if (birthDate == null || birthTime == null) {
-      setState(() => errorMessage = 'Pehle Birth Details save karo');
+      setState(() => errorMessage = 'Pehle Birth Details daalo');
       return;
     }
 
@@ -88,31 +99,26 @@ class _ChakraScreenState extends State<ChakraScreen> {
       isCalculating = true;
       errorMessage = null;
       planetNakshatra.clear();
+      planetLongitude.clear();
     });
 
     try {
-      // Create DateTime in UTC (simple approximation)
-      final dt = DateTime(
-        birthDate!.year,
-        birthDate!.month,
-        birthDate!.day,
-        birthTime!.hour,
-        birthTime!.minute,
-      );
+      // Convert local time to UT
+      double hour = birthTime!.hour + birthTime!.minute / 60.0 - timezoneOffset;
+      int day = birthDate!.day;
+      int month = birthDate!.month;
+      int year = birthDate!.year;
 
-      // Julian Day
-      final jd = Sweph.swe_julday(
-        dt.year,
-        dt.month,
-        dt.day,
-        dt.hour + dt.minute / 60.0,
-        CalendarType.SE_GREG_CAL,
-      );
+      if (hour < 0) {
+        hour += 24;
+        day -= 1;
+      }
 
-      // Set Lahiri ayanamsa
+      final jd = Sweph.swe_julday(year, month, day, hour, CalendarType.SE_GREG_CAL);
+
+      // Lahiri ayanamsa
       Sweph.swe_set_sid_mode(SiderealMode.SE_SIDM_LAHIRI);
 
-      // Planets to calculate
       final planets = {
         'Sun': HeavenlyBody.SE_SUN,
         'Moon': HeavenlyBody.SE_MOON,
@@ -125,30 +131,31 @@ class _ChakraScreenState extends State<ChakraScreen> {
       };
 
       Map<String, String> results = {};
+      Map<String, double> longs = {};
 
       for (var entry in planets.entries) {
         final flags = SwephFlag.SEFLG_SWIEPH | SwephFlag.SEFLG_SIDEREAL | SwephFlag.SEFLG_SPEED;
-        
         final pos = Sweph.swe_calc_ut(jd, entry.value, flags);
-        final longitude = pos.longitude;
         
-        final nak = longitudeToNakshatra(longitude);
-        results[entry.key] = nak;
+        results[entry.key] = longitudeToNakshatra(pos.longitude);
+        longs[entry.key] = pos.longitude;
       }
 
-      // Ketu is opposite to Rahu
-      if (results.containsKey('Rahu')) {
-        // Simple: Ketu is 180° opposite
-        results['Ketu'] = 'Magha'; // placeholder - improve later
+      // Proper Ketu = Rahu + 180°
+      if (longs.containsKey('Rahu')) {
+        double ketuLon = (longs['Rahu']! + 180) % 360;
+        results['Ketu'] = longitudeToNakshatra(ketuLon);
+        longs['Ketu'] = ketuLon;
       }
 
       setState(() {
         planetNakshatra = results;
+        planetLongitude = longs;
         isCalculating = false;
       });
     } catch (e) {
       setState(() {
-        errorMessage = 'Calculation error: $e';
+        errorMessage = 'Error: $e';
         isCalculating = false;
       });
     }
@@ -158,6 +165,9 @@ class _ChakraScreenState extends State<ChakraScreen> {
     DateTime tempDate = birthDate ?? DateTime(1990, 5, 15);
     TimeOfDay tempTime = birthTime ?? const TimeOfDay(hour: 10, minute: 30);
     String tempPlace = birthPlace;
+    double tempLat = latitude;
+    double tempLon = longitude;
+    double tempTz = timezoneOffset;
 
     showModalBottomSheet(
       context: context,
@@ -168,53 +178,74 @@ class _ChakraScreenState extends State<ChakraScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return Padding(
+            return SingleChildScrollView(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-                left: 20,
-                right: 20,
-                top: 20,
+                left: 20, right: 20, top: 20,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    'Birth Details / जन्म विवरण',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+                  const Text('Birth Details (Accurate)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
+
                   ListTile(
                     title: Text('Date: \( {tempDate.day}/ \){tempDate.month}/${tempDate.year}'),
                     trailing: const Icon(Icons.calendar_today),
                     onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: tempDate,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) setModalState(() => tempDate = picked);
+                      final p = await showDatePicker(context: context, initialDate: tempDate, firstDate: DateTime(1900), lastDate: DateTime.now());
+                      if (p != null) setModalState(() => tempDate = p);
                     },
                   ),
                   ListTile(
                     title: Text('Time: ${tempTime.format(context)}'),
                     trailing: const Icon(Icons.access_time),
                     onTap: () async {
-                      final picked = await showTimePicker(
-                        context: context,
-                        initialTime: tempTime,
-                      );
-                      if (picked != null) setModalState(() => tempTime = picked);
+                      final p = await showTimePicker(context: context, initialTime: tempTime);
+                      if (p != null) setModalState(() => tempTime = p);
                     },
                   ),
+
                   TextField(
-                    decoration: const InputDecoration(
-                      labelText: 'Place of Birth',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'Place Name', border: OutlineInputBorder()),
                     controller: TextEditingController(text: tempPlace),
                     onChanged: (v) => tempPlace = v,
                   ),
+                  const SizedBox(height: 10),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          decoration: const InputDecoration(labelText: 'Latitude', border: OutlineInputBorder()),
+                          keyboardType: TextInputType.number,
+                          controller: TextEditingController(text: tempLat.toString()),
+                          onChanged: (v) => tempLat = double.tryParse(v) ?? tempLat,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          decoration: const InputDecoration(labelText: 'Longitude', border: OutlineInputBorder()),
+                          keyboardType: TextInputType.number,
+                          controller: TextEditingController(text: tempLon.toString()),
+                          onChanged: (v) => tempLon = double.tryParse(v) ?? tempLon,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Timezone Offset (e.g. 5.5 for IST)',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    controller: TextEditingController(text: tempTz.toString()),
+                    onChanged: (v) => tempTz = double.tryParse(v) ?? tempTz,
+                  ),
+
                   const SizedBox(height: 20),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
@@ -227,9 +258,12 @@ class _ChakraScreenState extends State<ChakraScreen> {
                         birthDate = tempDate;
                         birthTime = tempTime;
                         birthPlace = tempPlace;
+                        latitude = tempLat;
+                        longitude = tempLon;
+                        timezoneOffset = tempTz;
                       });
                       Navigator.pop(context);
-                      _calculatePlanets(); // auto calculate
+                      _calculatePlanets();
                     },
                     child: const Text('Save & Calculate'),
                   ),
@@ -252,75 +286,81 @@ class _ChakraScreenState extends State<ChakraScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.person),
-            onPressed: _openBirthForm,
+            icon: Icon(showVedha ? Icons.visibility : Icons.visibility_off),
+            tooltip: 'Toggle Vedha Lines',
+            onPressed: () => setState(() => showVedha = !showVedha),
           ),
+          IconButton(icon: const Icon(Icons.person), onPressed: _openBirthForm),
         ],
       ),
       body: Column(
         children: [
-          // Status Card
+          // Info Card
           Card(
-            margin: const EdgeInsets.all(10),
+            margin: const EdgeInsets.all(8),
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (birthDate != null) ...[
-                    Text(
-                      'Birth: \( {birthDate!.day}/ \){birthDate!.month}/${birthDate!.year}  ${birthTime?.format(context) ?? ""}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text('Place: ${birthPlace.isEmpty ? "Not set" : birthPlace}'),
-                  ] else
-                    const Text('Birth details nahi dale hain'),
-                  
-                  if (isCalculating)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: LinearProgressIndicator(),
-                    ),
-                  
-                  if (errorMessage != null)
-                    Text(errorMessage!, style: const TextStyle(color: Colors.red)),
-                  
-                  if (planetNakshatra.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    const Text('Calculated Positions:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  if (birthDate != null)
+                    Text('Birth: \( {birthDate!.day}/ \){birthDate!.month}/${birthDate!.year} ${birthTime?.format(context)} | TZ: $timezoneOffset',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  if (planetNakshatra.isNotEmpty)
                     Wrap(
-                      spacing: 6,
-                      children: planetNakshatra.entries.map((e) {
-                        return Chip(
-                          label: Text('${e.key}: ${e.value}', style: const TextStyle(fontSize: 11)),
-                          backgroundColor: _getPlanetColor(e.key),
-                          labelStyle: const TextStyle(color: Colors.white),
-                        );
-                      }).toList(),
+                      spacing: 4,
+                      children: planetNakshatra.entries.map((e) => Chip(
+                        label: Text('\( {e.key}: \){e.value}', style: const TextStyle(fontSize: 10, color: Colors.white)),
+                        backgroundColor: _getPlanetColor(e.key),
+                        padding: EdgeInsets.zero,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      )).toList(),
                     ),
-                  ],
+                  if (isCalculating) const LinearProgressIndicator(),
+                  if (errorMessage != null) Text(errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12)),
                 ],
               ),
             ),
           ),
 
-          // Grid
+          // Grid with Vedha
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(6),
-              child: GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 9,
-                  childAspectRatio: 1,
-                  crossAxisSpacing: 1.5,
-                  mainAxisSpacing: 1.5,
-                ),
-                itemCount: 81,
-                itemBuilder: (context, index) {
-                  int row = index ~/ 9;
-                  int col = index % 9;
-                  return _buildCell(grid[row][col]);
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final cellSize = constraints.maxWidth / 9;
+                  return Stack(
+                    children: [
+                      // Grid
+                      GridView.builder(
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 9,
+                          childAspectRatio: 1,
+                          crossAxisSpacing: 1.5,
+                          mainAxisSpacing: 1.5,
+                        ),
+                        itemCount: 81,
+                        itemBuilder: (context, index) {
+                          int row = index ~/ 9;
+                          int col = index % 9;
+                          return _buildCell(grid[row][col]);
+                        },
+                      ),
+
+                      // Vedha Lines
+                      if (showVedha && planetNakshatra.isNotEmpty)
+                        CustomPaint(
+                          size: Size(constraints.maxWidth, constraints.maxWidth),
+                          painter: VedhaPainter(
+                            planetNakshatra: planetNakshatra,
+                            findPosition: findNakshatraPosition,
+                            cellSize: cellSize,
+                          ),
+                        ),
+                    ],
+                  );
                 },
               ),
             ),
@@ -353,11 +393,10 @@ class _ChakraScreenState extends State<ChakraScreen> {
       bgColor = Colors.teal.shade50;
     }
 
-    // Check if any planet is on this nakshatra
     String? planetHere;
-    planetNakshatra.forEach((planet, nak) {
-      if (nak == text || text.contains(nak) || nak.contains(text)) {
-        planetHere = planet;
+    planetNakshatra.forEach((p, nak) {
+      if (nak == text || text.contains(nak.split('.').last) || nak.contains(text)) {
+        planetHere = p;
       }
     });
 
@@ -377,15 +416,9 @@ class _ChakraScreenState extends State<ChakraScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (planetHere != null)
-              Text(planetHere!,
-                  style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white)),
-            Text(
-              text,
-              style: TextStyle(fontSize: text.length > 8 ? 7.5 : 9, color: textColor),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+              Text(planetHere!, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white)),
+            Text(text, style: TextStyle(fontSize: text.length > 8 ? 7 : 8.5, color: textColor),
+                textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
           ],
         ),
       ),
@@ -393,12 +426,12 @@ class _ChakraScreenState extends State<ChakraScreen> {
   }
 
   bool _isVowel(String t) => ['अ','आ','इ','ई','उ','ऊ','ऋ','ॠ','ऌ','लृ','लॄ','ए','ऐ','ओ','औ','अं','अः'].contains(t);
-  bool _isNakshatra(String t) => nakshatraList.contains(t) || t.contains('Phalguni') || t.contains('Ashadha') || t.contains('Bhadra');
+  bool _isNakshatra(String t) => nakshatraList.any((n) => t.contains(n) || n.contains(t));
   bool _isRashi(String t) => ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces'].contains(t);
   bool _isTithiOrVara(String t) => t.contains('day') || t.contains('Poorna') || t.contains('Sun') || t.contains('Mon');
 
-  Color _getPlanetColor(String planet) {
-    switch (planet) {
+  Color _getPlanetColor(String p) {
+    switch (p) {
       case 'Sun': return Colors.orange.shade700;
       case 'Moon': return Colors.blueGrey;
       case 'Mars': return Colors.red.shade700;
@@ -411,4 +444,64 @@ class _ChakraScreenState extends State<ChakraScreen> {
       default: return Colors.grey;
     }
   }
+}
+
+// ==================== VEDHA PAINTER ====================
+class VedhaPainter extends CustomPainter {
+  final Map<String, String> planetNakshatra;
+  final (int, int)? Function(String) findPosition;
+  final double cellSize;
+
+  VedhaPainter({
+    required this.planetNakshatra,
+    required this.findPosition,
+    required this.cellSize,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paintAcross = Paint()
+      ..color = Colors.red.withOpacity(0.6)
+      ..strokeWidth = 1.8
+      ..style = PaintingStyle.stroke;
+
+    final paintFore = Paint()
+      ..color = Colors.blue.withOpacity(0.5)
+      ..strokeWidth = 1.3
+      ..style = PaintingStyle.stroke;
+
+    final paintHind = Paint()
+      ..color = Colors.green.withOpacity(0.5)
+      ..strokeWidth = 1.3
+      ..style = PaintingStyle.stroke;
+
+    planetNakshatra.forEach((planet, nak) {
+      final pos = findPosition(nak);
+      if (pos == null) return;
+
+      final (r, c) = pos;
+      final center = Offset((c + 0.5) * cellSize, (r + 0.5) * cellSize);
+
+      // Across Vedha (opposite cell)
+      final oppR = 8 - r;
+      final oppC = 8 - c;
+      final oppCenter = Offset((oppC + 0.5) * cellSize, (oppR + 0.5) * cellSize);
+      canvas.drawLine(center, oppCenter, paintAcross);
+
+      // Simple Fore & Hind (diagonal-ish)
+      // Fore (one step)
+      if (c + 1 < 9 && r - 1 >= 0) {
+        final fore = Offset((c + 1.5) * cellSize, (r - 0.5) * cellSize);
+        canvas.drawLine(center, fore, paintFore);
+      }
+      // Hind
+      if (c - 1 >= 0 && r + 1 < 9) {
+        final hind = Offset((c - 0.5) * cellSize, (r + 1.5) * cellSize);
+        canvas.drawLine(center, hind, paintHind);
+      }
+    });
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
