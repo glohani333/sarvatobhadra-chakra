@@ -3,7 +3,7 @@ name: Build APK
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:   # Manual trigger bhi allow karega
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,8 +22,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
-          channel: 'stable'
+          channel: 'stable'          # Latest stable Flutter
           cache: true
 
       - name: Get dependencies
