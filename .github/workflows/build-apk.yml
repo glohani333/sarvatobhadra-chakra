@@ -32,6 +32,21 @@ jobs:
             flutter create . --project-name sarvatobhadra_chakra --org com.sarvatobhadra
           fi
 
+      - name: Update compileSdk to 35
+        run: |
+          # For build.gradle
+          if [ -f android/app/build.gradle ]; then
+            sed -i 's/compileSdk = .*/compileSdk = 35/' android/app/build.gradle || true
+            sed -i 's/compileSdkVersion .*/compileSdkVersion 35/' android/app/build.gradle || true
+          fi
+
+          # For build.gradle.kts (newer Flutter)
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/compileSdk = .*/compileSdk = 35/' android/app/build.gradle.kts || true
+          fi
+
+          echo "compileSdk updated to 35"
+
       - name: Get dependencies
         run: flutter pub get
 
