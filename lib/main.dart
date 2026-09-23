@@ -29,17 +29,14 @@ class ChakraScreen extends StatefulWidget {
 }
 
 class _ChakraScreenState extends State<ChakraScreen> {
-  // Birth Details
   DateTime? birthDate;
   TimeOfDay? birthTime;
   String birthPlace = '';
   double latitude = 28.6139;
   double longitude = 77.2090;
   double timezoneOffset = 5.5;
-
   bool showVedha = true;
 
-  // Sample planetary positions (baad mein real calculation se replace hoga)
   Map<String, String> planetNakshatra = {
     'Sun': 'U.Phalguni',
     'Moon': 'Dhanishta',
@@ -52,7 +49,6 @@ class _ChakraScreenState extends State<ChakraScreen> {
     'Ketu': 'Magha',
   };
 
-  // Classical 9x9 Grid
   final List<List<String>> grid = [
     ['ई', 'Dhanishta', 'Shatabhisha', 'P.Bhadra', 'U.Bhadra', 'Revati', 'Ashwini', 'Bharani', 'अ'],
     ['Shravana', 'ऋ', 'ग', 'स', 'द', 'च', 'ल', 'उ', 'Krittika'],
@@ -96,18 +92,25 @@ class _ChakraScreenState extends State<ChakraScreen> {
             return SingleChildScrollView(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-                left: 20, right: 20, top: 20,
+                left: 20,
+                right: 20,
+                top: 20,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Birth Details (Accurate)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text('Birth Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   ListTile(
                     title: Text('Date: \( {tempDate.day}/ \){tempDate.month}/${tempDate.year}'),
                     trailing: const Icon(Icons.calendar_today),
                     onTap: () async {
-                      final p = await showDatePicker(context: context, initialDate: tempDate, firstDate: DateTime(1900), lastDate: DateTime.now());
+                      final p = await showDatePicker(
+                        context: context,
+                        initialDate: tempDate,
+                        firstDate: DateTime(1900),
+                        lastDate: DateTime.now(),
+                      );
                       if (p != null) setModalState(() => tempDate = p);
                     },
                   ),
@@ -149,7 +152,7 @@ class _ChakraScreenState extends State<ChakraScreen> {
                   const SizedBox(height: 10),
                   TextField(
                     decoration: const InputDecoration(
-                      labelText: 'Timezone Offset (e.g. 5.5 for IST)',
+                      labelText: 'Timezone Offset (e.g. 5.5)',
                       border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.number,
@@ -173,9 +176,8 @@ class _ChakraScreenState extends State<ChakraScreen> {
                         timezoneOffset = tempTz;
                       });
                       Navigator.pop(context);
-                      // Yahan baad mein real calculation call hoga
                     },
-                    child: const Text('Save Birth Details'),
+                    child: const Text('Save'),
                   ),
                 ],
               ),
@@ -197,7 +199,6 @@ class _ChakraScreenState extends State<ChakraScreen> {
         actions: [
           IconButton(
             icon: Icon(showVedha ? Icons.visibility : Icons.visibility_off),
-            tooltip: 'Toggle Vedha Lines',
             onPressed: () => setState(() => showVedha = !showVedha),
           ),
           IconButton(icon: const Icon(Icons.person), onPressed: _openBirthForm),
@@ -324,8 +325,13 @@ class _ChakraScreenState extends State<ChakraScreen> {
           children: [
             if (planetHere != null)
               Text(planetHere!, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white)),
-            Text(text, style: TextStyle(fontSize: text.length > 8 ? 7.5 : 9, color: textColor),
-                textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text(
+              text,
+              style: TextStyle(fontSize: text.length > 8 ? 7.5 : 9, color: textColor),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),
@@ -348,7 +354,6 @@ class _ChakraScreenState extends State<ChakraScreen> {
   }
 }
 
-// Vedha Lines Painter
 class VedhaPainter extends CustomPainter {
   final Map<String, String> planetNakshatra;
   final (int, int)? Function(String) findPosition;
@@ -362,17 +367,49 @@ class VedhaPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paintAcross = Paint()..color = Colors.red.withOpacity(0.55)..strokeWidth = 1.6..style = PaintingStyle.stroke;
-    final paintFore = Paint()..color = Colors.blue.withOpacity(0.45)..strokeWidth = 1.2..style = PaintingStyle.stroke;
-    final paintHind = Paint()..color = Colors.green.withOpacity(0.45)..strokeWidth = 1.2..style = PaintingStyle.stroke;
+    final paintAcross = Paint()
+      ..color = Colors.red.withOpacity(0.55)
+      ..strokeWidth = 1.6
+      ..style = PaintingStyle.stroke;
+
+    final paintFore = Paint()
+      ..color = Colors.blue.withOpacity(0.45)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+
+    final paintHind = Paint()
+      ..color = Colors.green.withOpacity(0.45)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
 
     planetNakshatra.forEach((planet, nak) {
       final pos = findPosition(nak);
       if (pos == null) return;
 
-      final (r, c) = pos;
+      final r = pos.$1;
+      final c = pos.$2;
       final center = Offset((c + 0.5) * cellSize, (r + 0.5) * cellSize);
 
       // Across (opposite)
       final oppCenter = Offset(((8 - c) + 0.5) * cellSize, ((8 - r) + 0.5) * cellSize);
-      canvas.drawLine(center
+      canvas.drawLine(center, oppCenter, paintAcross);
+
+      // Fore
+      if (c + 1 < 9 && r - 1 >= 0) {
+        final fore = Offset((c + 1.5) * cellSize, (r - 0.5) * cellSize);
+        canvas.drawLine(center, fore, paintFore);
+      }
+
+      // Hind
+      if (c - 1 >= 0 && r + 1 < 9) {
+        final hind = Offset((c - 0.5) * cellSize, (r + 1.5) * cellSize);
+        canvas.drawLine(center, hind, paintHind);
+      }
+    });
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
+  }
+}
